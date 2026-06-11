@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
-import { Plus, Target, Trash2, ChevronDown } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Plus, Target, Trash2, ChevronDown, Download, Upload } from 'lucide-react';
 import { useExpense } from '@/contexts/ExpenseContext';
 import { Button } from '@/components/ui/button';
 import { useLocation } from 'wouter';
 import { toast } from 'sonner';
 
 export default function ExpensePage() {
-  const { addExpense, setBudgetGoal, activeBudget, budgets, setActiveBudget, deleteBudget, expenses } = useExpense();
+  const { addExpense, setBudgetGoal, activeBudget, budgets, setActiveBudget, deleteBudget, expenses, exportData, importData } = useExpense();
   const [, setLocation] = useLocation();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [tab, setTab] = useState<'add' | 'budget' | 'metas'>('add');
+  const [tab, setTab] = useState<'add' | 'budget' | 'metas' | 'backup'>('add');
   const [expenseForm, setExpenseForm] = useState({
     amount: '',
     description: '',
@@ -98,6 +99,34 @@ export default function ExpensePage() {
     }
   };
 
+  const handleExport = () => {
+    try {
+      exportData();
+      toast.success('Dados exportados com sucesso!');
+    } catch (error) {
+      toast.error('Erro ao exportar dados');
+    }
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      await importData(file);
+      toast.success('Dados importados com sucesso!');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao importar dados');
+    }
+  };
+
   const categories = ['Alimentação', 'Transporte', 'Entretenimento', 'Saúde', 'Compras', 'Outros'];
   const activeBudgetExpenses = expenses.filter(e => e.budgetId === activeBudget?.id);
 
@@ -110,10 +139,10 @@ export default function ExpensePage() {
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex gap-3 mb-8">
+        <div className="flex gap-2 mb-8 overflow-x-auto">
           <button
             onClick={() => setTab('add')}
-            className={`flex-1 py-3 px-4 font-medium rounded-full uppercase text-sm tracking-wider transition-all flex items-center justify-center gap-2 ${
+            className={`py-3 px-4 font-medium rounded-full uppercase text-sm tracking-wider transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
               tab === 'add'
                 ? 'bg-primary text-primary-foreground shadow-md'
                 : 'bg-muted text-foreground border border-border'
@@ -124,7 +153,7 @@ export default function ExpensePage() {
           </button>
           <button
             onClick={() => setTab('metas')}
-            className={`flex-1 py-3 px-4 font-medium rounded-full uppercase text-sm tracking-wider transition-all flex items-center justify-center gap-2 ${
+            className={`py-3 px-4 font-medium rounded-full uppercase text-sm tracking-wider transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
               tab === 'metas'
                 ? 'bg-primary text-primary-foreground shadow-md'
                 : 'bg-muted text-foreground border border-border'
@@ -135,7 +164,7 @@ export default function ExpensePage() {
           </button>
           <button
             onClick={() => setTab('budget')}
-            className={`flex-1 py-3 px-4 font-medium rounded-full uppercase text-sm tracking-wider transition-all flex items-center justify-center gap-2 ${
+            className={`py-3 px-4 font-medium rounded-full uppercase text-sm tracking-wider transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
               tab === 'budget'
                 ? 'bg-primary text-primary-foreground shadow-md'
                 : 'bg-muted text-foreground border border-border'
@@ -144,7 +173,27 @@ export default function ExpensePage() {
             <Plus className="w-4 h-4" strokeWidth={2.5} />
             Nova
           </button>
+          <button
+            onClick={() => setTab('backup')}
+            className={`py-3 px-4 font-medium rounded-full uppercase text-sm tracking-wider transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
+              tab === 'backup'
+                ? 'bg-primary text-primary-foreground shadow-md'
+                : 'bg-muted text-foreground border border-border'
+            }`}
+          >
+            <Download className="w-4 h-4" strokeWidth={2.5} />
+            Backup
+          </button>
         </div>
+
+        {/* Hidden file input for import */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json"
+          onChange={handleImportFile}
+          style={{ display: 'none' }}
+        />
 
         {/* Add Expense Tab */}
         {tab === 'add' && (
@@ -402,6 +451,63 @@ export default function ExpensePage() {
                 Criar Meta
               </button>
             </form>
+          </div>
+        )}
+
+        {/* Backup Tab */}
+        {tab === 'backup' && (
+          <div className="space-y-6">
+            {/* Export Section */}
+            <div className="m3-card p-8">
+              <div className="mb-6">
+                <h2 className="font-headline text-2xl mb-2">Exportar Dados</h2>
+                <p className="font-body text-muted-foreground">
+                  Faça download de um arquivo JSON com todas as suas metas e gastos. Você poderá importar esses dados depois.
+                </p>
+              </div>
+
+              <div className="bg-primary/10 p-6 rounded-lg border border-primary/20 mb-6">
+                <p className="font-label text-muted-foreground mb-2">TOTAL DE METAS</p>
+                <p className="font-headline text-3xl text-primary">{budgets.length}</p>
+                <p className="font-label text-muted-foreground mt-4">TOTAL DE GASTOS</p>
+                <p className="font-headline text-3xl text-primary">{expenses.length}</p>
+              </div>
+
+              <button
+                onClick={handleExport}
+                className="w-full px-6 py-4 bg-primary text-primary-foreground rounded-full font-medium uppercase text-sm tracking-wider shadow-md hover:shadow-lg transition-all hover:-translate-y-0.5 flex items-center justify-center gap-2"
+              >
+                <Download className="w-5 h-5" strokeWidth={2.5} />
+                Exportar como JSON
+              </button>
+            </div>
+
+            {/* Import Section */}
+            <div className="m3-card p-8">
+              <div className="mb-6">
+                <h2 className="font-headline text-2xl mb-2">Importar Dados</h2>
+                <p className="font-body text-muted-foreground">
+                  Carregue um arquivo JSON previamente exportado para restaurar suas metas e gastos. Os dados importados substituirão os atuais.
+                </p>
+              </div>
+
+              <div className="bg-accent/10 p-6 rounded-lg border border-accent/20 mb-6">
+                <p className="font-label text-muted-foreground mb-3">INSTRUÇÕES:</p>
+                <ul className="font-body text-foreground space-y-2 list-disc list-inside">
+                  <li>Selecione um arquivo JSON válido exportado desta aplicação</li>
+                  <li>Os dados atuais serão substituídos pelos dados do arquivo</li>
+                  <li>Certifique-se de fazer backup antes de importar</li>
+                </ul>
+              </div>
+
+              <button
+                onClick={handleImportClick}
+                className="w-full px-6 py-4 bg-accent text-accent-foreground rounded-full font-medium uppercase text-sm tracking-wider shadow-md hover:shadow-lg transition-all hover:-translate-y-0.5 flex items-center justify-center gap-2"
+              >
+                <Upload className="w-5 h-5" strokeWidth={2.5} />
+                Selecionar Arquivo
+              </button>
+            </div>
           </div>
         )}
       </div>

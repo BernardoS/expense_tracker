@@ -35,6 +35,8 @@ interface ExpenseContextType {
   getTotalBudget: () => number;
   getAdjustedDailyLimit: (date: string) => number;
   deleteExpense: (id: string) => void;
+  exportData: () => void;
+  importData: (file: File) => Promise<void>;
 }
 
 const ExpenseContext = createContext<ExpenseContextType | undefined>(undefined);
@@ -192,6 +194,52 @@ export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children })
     return Math.max(0, totalBudget - monthlySpent);
   };
 
+  const exportData = () => {
+    const data: StorageData = {
+      budgets,
+      expenses,
+      activeBudgetId,
+    };
+
+    const jsonString = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `expense-tracker-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = async (file: File): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const content = event.target?.result as string;
+          const data: StorageData = JSON.parse(content);
+
+          if (!data.budgets || !Array.isArray(data.budgets) || !data.expenses || !Array.isArray(data.expenses)) {
+            throw new Error('Formato de arquivo inválido');
+          }
+
+          setBudgets(data.budgets);
+          setExpenses(data.expenses);
+          setActiveBudgetId(data.activeBudgetId || (data.budgets?.[0]?.id || null));
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = () => {
+        reject(new Error('Erro ao ler o arquivo'));
+      };
+      reader.readAsText(file);
+    });
+  };
+
   return (
     <ExpenseContext.Provider
       value={{
@@ -211,6 +259,8 @@ export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children })
         getTotalBudget,
         getAdjustedDailyLimit,
         deleteExpense,
+        exportData,
+        importData,
       }}
     >
       {children}
