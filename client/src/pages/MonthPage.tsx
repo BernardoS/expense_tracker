@@ -13,27 +13,34 @@ export default function MonthPage() {
   const totalBudget = getTotalBudget();
   const monthlyRemaining = getMonthlyRemaining();
 
-  // Generate chart data for each day of the month
+  // Generate chart data for each day of the meta period
   const chartData = useMemo(() => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = today.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    if (!activeBudget) return [];
 
+    const startDate = new Date(activeBudget.startDate);
+    const endDate = new Date(activeBudget.endDate);
+    
     const data = [];
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const currentDate = new Date(startDate);
+    let dayNumber = 1;
+
+    while (currentDate <= endDate) {
+      const dateStr = currentDate.toISOString().split('T')[0];
       const daySpent = expenses
-        .filter(exp => exp.date === dateStr)
+        .filter(exp => exp.date === dateStr && exp.budgetId === activeBudget.id)
         .reduce((sum, exp) => sum + exp.amount, 0);
 
       data.push({
-        day: day,
+        day: dayNumber,
         spent: daySpent,
+        date: dateStr,
       });
+
+      currentDate.setDate(currentDate.getDate() + 1);
+      dayNumber++;
     }
     return data;
-  }, [expenses]);
+  }, [expenses, activeBudget]);
 
   const percentage = totalBudget > 0 ? (monthlySpent / totalBudget) * 100 : 0;
 
@@ -57,7 +64,7 @@ export default function MonthPage() {
     );
   }
 
-  const monthName = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const metaPeriod = `${new Date(activeBudget.startDate).toLocaleDateString('pt-BR')} até ${new Date(activeBudget.endDate).toLocaleDateString('pt-BR')}`;
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -67,8 +74,8 @@ export default function MonthPage() {
             <TrendingUp className="w-8 h-8 text-primary" strokeWidth={1.5} />
             <h1 className="font-headline text-3xl">Seu Mês</h1>
           </div>
-          <p className="font-label text-muted-foreground mt-1 capitalize">
-            {monthName}
+          <p className="font-label text-muted-foreground mt-1">
+            {activeBudget.name} • {metaPeriod}
           </p>
         </div>
 
@@ -81,7 +88,7 @@ export default function MonthPage() {
                 dataKey="day"
                 stroke="#49454e"
                 tick={{ fontSize: 12, fill: '#49454e' }}
-                interval={Math.floor(chartData.length / 7)}
+                interval={Math.floor(Math.max(0, chartData.length / 7))}
                 axisLine={false}
               />
               <YAxis 
@@ -97,6 +104,7 @@ export default function MonthPage() {
                   boxShadow: '0 3px 6px rgba(0, 0, 0, 0.15)',
                 }}
                 formatter={(value: any) => `R$ ${Number(value).toFixed(2)}`}
+                labelFormatter={(label: any) => `Dia ${label}`}
                 labelStyle={{ color: '#1c1b1f' }}
               />
               <Bar dataKey="spent" fill="#6750a4" radius={[8, 8, 0, 0]} />
@@ -107,7 +115,7 @@ export default function MonthPage() {
         {/* Stats Card */}
         <div className="m3-card p-8 mb-6">
           <div className="text-center mb-8">
-            <p className="font-label text-muted-foreground mb-2">GASTO ESTE MÊS</p>
+            <p className="font-label text-muted-foreground mb-2">GASTO NESTA META</p>
             <p className="font-display text-5xl text-primary mb-6">
               R$ {monthlySpent.toFixed(2)}
             </p>
@@ -118,7 +126,7 @@ export default function MonthPage() {
               />
             </div>
             <p className="font-label text-muted-foreground mt-3">
-              {percentage.toFixed(0)}% DO ORÇAMENTO MENSAL
+              {percentage.toFixed(0)}% DO ORÇAMENTO
             </p>
           </div>
 
@@ -144,14 +152,14 @@ export default function MonthPage() {
             <div className="flex items-center justify-center gap-2">
               <Sparkles className="w-5 h-5 text-primary" strokeWidth={2.5} />
               <p className="font-title text-primary">
-                Você pode gastar até R$ {monthlyRemaining.toFixed(2)} este mês!
+                Você pode gastar até R$ {monthlyRemaining.toFixed(2)} nesta meta!
               </p>
             </div>
           ) : (
             <div className="flex items-center justify-center gap-2">
               <AlertCircle className="w-5 h-5 text-destructive" strokeWidth={2.5} />
               <p className="font-title text-destructive">
-                Orçamento mensal atingido!
+                Orçamento da meta atingido!
               </p>
             </div>
           )}

@@ -2,13 +2,14 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, useLocation } from "wouter";
-import { Calendar, TrendingUp, Wallet } from "lucide-react";
+import { Calendar, TrendingUp, Wallet, BarChart3 } from "lucide-react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ExpenseProvider } from "./contexts/ExpenseContext";
 import DayPage from "./pages/DayPage";
 import MonthPage from "./pages/MonthPage";
 import ExpensePage from "./pages/ExpensePage";
+import AnalysisPage from "./pages/AnalysisPage";
 
 function Navigation() {
   const [location, setLocation] = useLocation();
@@ -16,6 +17,7 @@ function Navigation() {
   const navItems = [
     { path: "/", label: "Dia", icon: Calendar },
     { path: "/mes", label: "Mês", icon: TrendingUp },
+    { path: "/analise", label: "Análise", icon: BarChart3 },
     { path: "/gastos", label: "Gastos", icon: Wallet },
   ];
 
@@ -49,6 +51,7 @@ function Router() {
     <Switch>
       <Route path={"/"} component={DayPage} />
       <Route path={"/mes"} component={MonthPage} />
+      <Route path={"/analise"} component={AnalysisPage} />
       <Route path={"/gastos"} component={ExpensePage} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}

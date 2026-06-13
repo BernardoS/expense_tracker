@@ -1,28 +1,51 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Target, Trash2, ChevronDown, Download, Upload } from 'lucide-react';
+import { Plus, Target, Trash2, ChevronDown, Download, Upload, Calendar } from 'lucide-react';
 import { useExpense } from '@/contexts/ExpenseContext';
 import { Button } from '@/components/ui/button';
 import { useLocation } from 'wouter';
 import { toast } from 'sonner';
 
 export default function ExpensePage() {
-  const { addExpense, setBudgetGoal, activeBudget, budgets, setActiveBudget, deleteBudget, expenses, exportData, importData } = useExpense();
+  const { addExpense, setBudgetGoal, activeBudget, budgets, setActiveBudget, deleteBudget, expenses, exportData, importData, setCategoryLimit, getCategoryLimit } = useExpense();
   const [, setLocation] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [tab, setTab] = useState<'add' | 'budget' | 'metas' | 'backup'>('add');
+  const [tab, setTab] = useState<'add' | 'budget' | 'metas' | 'backup' | 'limites'>('add');
   const [expenseForm, setExpenseForm] = useState({
     amount: '',
     description: '',
     category: 'Alimentação',
+    date: new Date().toISOString().split('T')[0],
+  });
+
+  const [categoryLimitForm, setCategoryLimitForm] = useState({
+    category: 'Alimentação',
+    maxAmount: '',
   });
 
   const [budgetForm, setBudgetForm] = useState({
     name: '',
     totalAmount: '',
-    durationDays: '30',
+    startDate: '',
+    endDate: '',
     initialSpent: '',
   });
+
+  const handleSetCategoryLimit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!categoryLimitForm.maxAmount || parseFloat(categoryLimitForm.maxAmount) <= 0) {
+      toast.error('Digite um valor válido para o limite');
+      return;
+    }
+
+    setCategoryLimit(categoryLimitForm.category, parseFloat(categoryLimitForm.maxAmount));
+    setCategoryLimitForm({
+      category: 'Alimentação',
+      maxAmount: '',
+    });
+    toast.success('Limite de categoria definido com sucesso!');
+  }
 
   const handleAddExpense = (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,11 +60,10 @@ export default function ExpensePage() {
       return;
     }
 
-    const today = new Date().toISOString().split('T')[0];
     addExpense({
       amount: parseFloat(expenseForm.amount),
       description: expenseForm.description || 'Sem descrição',
-      date: today,
+      date: expenseForm.date,
       category: expenseForm.category,
     });
 
@@ -49,9 +71,19 @@ export default function ExpensePage() {
       amount: '',
       description: '',
       category: 'Alimentação',
+      date: new Date().toISOString().split('T')[0],
     });
 
     toast.success('Gasto adicionado com sucesso!');
+  };
+
+  const calculateDurationDays = (startDate: string, endDate: string): number => {
+    if (!startDate || !endDate) return 0;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    return diffDays;
   };
 
   const handleSetBudget = (e: React.FormEvent) => {
@@ -67,24 +99,37 @@ export default function ExpensePage() {
       return;
     }
 
-    if (!budgetForm.durationDays || parseInt(budgetForm.durationDays) <= 0) {
-      toast.error('Digite um número válido de dias');
+    if (!budgetForm.startDate) {
+      toast.error('Selecione a data inicial');
       return;
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    if (!budgetForm.endDate) {
+      toast.error('Selecione a data final');
+      return;
+    }
+
+    const startDate = new Date(budgetForm.startDate);
+    const endDate = new Date(budgetForm.endDate);
+
+    if (endDate < startDate) {
+      toast.error('A data final deve ser após a data inicial');
+      return;
+    }
+
     setBudgetGoal({
       name: budgetForm.name,
       totalAmount: parseFloat(budgetForm.totalAmount),
-      durationDays: parseInt(budgetForm.durationDays),
-      startDate: today,
+      startDate: budgetForm.startDate,
+      endDate: budgetForm.endDate,
       initialSpent: budgetForm.initialSpent ? parseFloat(budgetForm.initialSpent) : 0,
     });
 
     setBudgetForm({
       name: '',
       totalAmount: '',
-      durationDays: '30',
+      startDate: '',
+      endDate: '',
       initialSpent: '',
     });
 
@@ -127,8 +172,9 @@ export default function ExpensePage() {
     }
   };
 
-  const categories = ['Alimentação', 'Transporte', 'Entretenimento', 'Saúde', 'Compras', 'Outros'];
+  const categories = ['Alimentação', 'Transporte', 'Entretenimento', 'Saúde', 'Compras', 'Lazer', 'Outros'];
   const activeBudgetExpenses = expenses.filter(e => e.budgetId === activeBudget?.id);
+  const durationDays = calculateDurationDays(budgetForm.startDate, budgetForm.endDate);
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -183,6 +229,17 @@ export default function ExpensePage() {
           >
             <Download className="w-4 h-4" strokeWidth={2.5} />
             Backup
+          </button>
+          <button
+            onClick={() => setTab("limites")}
+            className={`py-3 px-4 font-medium rounded-full uppercase text-sm tracking-wider transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
+              tab === "limites"
+                ? "bg-primary text-primary-foreground shadow-md"
+                : "bg-muted text-foreground border border-border"
+            }`}
+          >
+            <Target className="w-4 h-4" strokeWidth={2.5} />
+            Limites
           </button>
         </div>
 
@@ -260,6 +317,20 @@ export default function ExpensePage() {
                       ))}
                     </select>
                   </div>
+                  <div>
+                    <label className="block font-label text-muted-foreground mb-3">DATA DO GASTO</label>
+                    <div className="relative">
+                      <Calendar className="absolute left-3 top-3.5 w-5 h-5 text-muted-foreground pointer-events-none" strokeWidth={2} />
+                      <input
+                        type="date"
+                        value={expenseForm.date}
+                        onChange={(e) =>
+                          setExpenseForm({ ...expenseForm, date: e.target.value })
+                        }
+                        className="m3-input font-body pl-10"
+                      />
+                    </div>
+                  </div>
 
                   <button
                     type="submit"
@@ -312,46 +383,50 @@ export default function ExpensePage() {
                 </button>
               </div>
             ) : (
-              budgets.map((budget) => (
-                <div
-                  key={budget.id}
-                  className={`m3-card p-6 cursor-pointer transition-all ${
-                    activeBudget?.id === budget.id
-                      ? 'border-2 border-primary bg-primary/5'
-                      : 'border border-border hover:border-primary/50'
-                  }`}
-                  onClick={() => setActiveBudget(budget.id)}
-                >
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="font-headline text-lg text-primary">{budget.name}</h3>
-                      <p className="font-label text-muted-foreground text-sm">
-                        {new Date(budget.startDate).toLocaleDateString('pt-BR')}
-                      </p>
+              budgets.map((budget) => {
+                const daysTotal = calculateDurationDays(budget.startDate, budget.endDate);
+                return (
+                  <div
+                    key={budget.id}
+                    className={`m3-card p-6 cursor-pointer transition-all ${
+                      activeBudget?.id === budget.id
+                        ? 'border-2 border-primary bg-primary/5'
+                        : 'border border-border hover:border-primary/50'
+                    }`}
+                    onClick={() => setActiveBudget(budget.id)}
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="font-headline text-lg text-primary">{budget.name}</h3>
+                        <p className="font-label text-muted-foreground text-sm">
+                          {new Date(budget.startDate).toLocaleDateString('pt-BR')} até{' '}
+                          {new Date(budget.endDate).toLocaleDateString('pt-BR')}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteBudget(budget.id);
+                        }}
+                        className="p-2 hover:bg-destructive/10 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-5 h-5 text-destructive" strokeWidth={2.5} />
+                      </button>
                     </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteBudget(budget.id);
-                      }}
-                      className="p-2 hover:bg-destructive/10 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-5 h-5 text-destructive" strokeWidth={2.5} />
-                    </button>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-primary/10 p-4 rounded-lg">
-                      <p className="font-label text-muted-foreground text-xs">ORÇAMENTO</p>
-                      <p className="font-headline text-lg text-primary">R$ {budget.totalAmount.toFixed(2)}</p>
-                    </div>
-                    <div className="bg-accent/10 p-4 rounded-lg">
-                      <p className="font-label text-muted-foreground text-xs">DURAÇÃO</p>
-                      <p className="font-headline text-lg text-accent">{budget.durationDays} dias</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-primary/10 p-4 rounded-lg">
+                        <p className="font-label text-muted-foreground text-xs">ORÇAMENTO</p>
+                        <p className="font-headline text-lg text-primary">R$ {budget.totalAmount.toFixed(2)}</p>
+                      </div>
+                      <div className="bg-accent/10 p-4 rounded-lg">
+                        <p className="font-label text-muted-foreground text-xs">DURAÇÃO</p>
+                        <p className="font-headline text-lg text-accent">{daysTotal} dias</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
@@ -391,21 +466,36 @@ export default function ExpensePage() {
                 </p>
               </div>
 
-              <div>
-                <label className="block font-label text-muted-foreground mb-3">DURAÇÃO (DIAS)</label>
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="30"
-                  value={budgetForm.durationDays}
-                  onChange={(e) =>
-                    setBudgetForm({ ...budgetForm, durationDays: e.target.value })
-                  }
-                  className="m3-input font-headline text-2xl"
-                />
-                <p className="font-label text-muted-foreground mt-2">
-                  Quantos dias para atingir o limite?
-                </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">DATA INICIAL</label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-3.5 w-5 h-5 text-muted-foreground pointer-events-none" strokeWidth={2} />
+                    <input
+                      type="date"
+                      value={budgetForm.startDate}
+                      onChange={(e) =>
+                        setBudgetForm({ ...budgetForm, startDate: e.target.value })
+                      }
+                      className="m3-input font-body pl-10"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">DATA FINAL</label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-3.5 w-5 h-5 text-muted-foreground pointer-events-none" strokeWidth={2} />
+                    <input
+                      type="date"
+                      value={budgetForm.endDate}
+                      onChange={(e) =>
+                        setBudgetForm({ ...budgetForm, endDate: e.target.value })
+                      }
+                      className="m3-input font-body pl-10"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -426,7 +516,7 @@ export default function ExpensePage() {
                 </p>
               </div>
 
-              {budgetForm.totalAmount && budgetForm.durationDays && (
+              {budgetForm.totalAmount && budgetForm.startDate && budgetForm.endDate && (
                 <div className="space-y-3">
                   <div className="bg-primary/10 p-6 rounded-xl border border-primary/20">
                     <p className="font-label text-muted-foreground mb-2">ORÇAMENTO DISPONÍVEL</p>
@@ -437,8 +527,12 @@ export default function ExpensePage() {
                   <div className="bg-accent/10 p-6 rounded-xl border border-accent/20">
                     <p className="font-label text-muted-foreground mb-2">LIMITE DIÁRIO ESTIMADO</p>
                     <p className="font-headline text-3xl text-accent">
-                      R$ {((parseFloat(budgetForm.totalAmount) - (budgetForm.initialSpent ? parseFloat(budgetForm.initialSpent) : 0)) / parseInt(budgetForm.durationDays)).toFixed(2)}
+                      R$ {durationDays > 0 ? ((parseFloat(budgetForm.totalAmount) - (budgetForm.initialSpent ? parseFloat(budgetForm.initialSpent) : 0)) / durationDays).toFixed(2) : '0.00'}
                     </p>
+                  </div>
+                  <div className="bg-muted/30 p-4 rounded-lg border border-border">
+                    <p className="font-label text-muted-foreground">DURAÇÃO TOTAL</p>
+                    <p className="font-headline text-xl">{durationDays} dias</p>
                   </div>
                 </div>
               )}
@@ -508,6 +602,79 @@ export default function ExpensePage() {
                 Selecionar Arquivo
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Category Limits Tab */}
+        {tab === 'limites' && (
+          <div className="m3-card p-8 mb-6">
+            {!activeBudget ? (
+              <div className="text-center py-8">
+                <p className="font-body text-muted-foreground mb-4">Nenhuma meta selecionada</p>
+              </div>
+            ) : (
+              <form onSubmit={handleSetCategoryLimit} className="space-y-6">
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">CATEGORIA</label>
+                  <select
+                    value={categoryLimitForm.category}
+                    onChange={(e) =>
+                      setCategoryLimitForm({ ...categoryLimitForm, category: e.target.value })
+                    }
+                    className="m3-select font-body"
+                  >
+                    {categories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">LIMITE MÁXIMO (R$)</label>
+                  <input
+                    type="number"
+                    placeholder="0.00"
+                    step="0.01"
+                    min="0"
+                    value={categoryLimitForm.maxAmount}
+                    onChange={(e) =>
+                      setCategoryLimitForm({ ...categoryLimitForm, maxAmount: e.target.value })
+                    }
+                    className="m3-input font-headline text-lg"
+                  />
+                  <p className="font-label text-muted-foreground text-sm mt-2">Deixe em branco para remover o limite</p>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full px-6 py-4 bg-primary text-primary-foreground rounded-full font-medium uppercase text-sm tracking-wider shadow-md hover:shadow-lg transition-all hover:-translate-y-0.5"
+                >
+                  Definir Limite
+                </button>
+              </form>
+            )}
+
+            {/* Current Limits */}
+            {activeBudget?.categoryLimits && activeBudget.categoryLimits.length > 0 && (
+              <div className="mt-8 pt-8 border-t border-border">
+                <h3 className="font-headline text-lg mb-4">Limites Configurados</h3>
+                <div className="space-y-3">
+                  {activeBudget.categoryLimits.map((limit) => {
+                    const spent = getCategoryLimit(limit.category);
+                    return (
+                      <div key={limit.category} className="p-4 bg-muted/30 rounded-lg border border-border">
+                        <div className="flex justify-between items-center">
+                          <span className="font-body font-medium">{limit.category}</span>
+                          <span className="font-headline text-primary">R$ {limit.maxAmount.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

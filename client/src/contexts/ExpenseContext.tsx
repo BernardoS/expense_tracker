@@ -9,13 +9,19 @@ export interface Expense {
   budgetId: string;
 }
 
+export interface CategoryLimit {
+  category: string;
+  maxAmount: number;
+}
+
 export interface BudgetGoal {
   id: string;
   name: string;
   totalAmount: number;
-  durationDays: number;
   startDate: string;
+  endDate: string;
   initialSpent?: number;
+  categoryLimits?: CategoryLimit[];
 }
 
 interface ExpenseContextType {
@@ -37,6 +43,10 @@ interface ExpenseContextType {
   deleteExpense: (id: string) => void;
   exportData: () => void;
   importData: (file: File) => Promise<void>;
+  setCategoryLimit: (category: string, maxAmount: number) => void;
+  getCategorySpent: (category: string) => number;
+  getCategoryLimit: (category: string) => number | undefined;
+  getExceededCategories: () => { category: string; spent: number; limit: number }[];
 }
 
 const ExpenseContext = createContext<ExpenseContextType | undefined>(undefined);
@@ -153,12 +163,16 @@ export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!activeBudget) return 0;
 
     const startDate = new Date(activeBudget.startDate);
+    const endDate = new Date(activeBudget.endDate);
     const currentDate = new Date(date);
     const daysElapsed = Math.floor(
       (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
     );
+    const totalDays = Math.floor(
+      (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+    ) + 1;
 
-    const daysRemaining = Math.max(0, activeBudget.durationDays - daysElapsed);
+    const daysRemaining = Math.max(0, totalDays - daysElapsed);
     const remainingBudget = getTotalBudget() - getMonthlySpent();
 
     return daysRemaining > 0 ? remainingBudget / daysRemaining : 0;
@@ -168,12 +182,16 @@ export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!activeBudget) return 0;
 
     const startDate = new Date(activeBudget.startDate);
+    const endDate = new Date(activeBudget.endDate);
     const currentDate = new Date(date);
     const daysElapsed = Math.floor(
       (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
     );
+    const totalDays = Math.floor(
+      (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+    ) + 1;
 
-    const daysRemaining = Math.max(0, activeBudget.durationDays - daysElapsed);
+    const daysRemaining = Math.max(0, totalDays - daysElapsed);
     const totalSpent = getMonthlySpent();
     const remainingBudget = Math.max(0, getTotalBudget() - totalSpent);
 
@@ -240,6 +258,55 @@ export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
   };
 
+  const setCategoryLimit = (category: string, maxAmount: number) => {
+    if (!activeBudget) return;
+
+    const updatedBudgets = budgets.map(budget => {
+      if (budget.id === activeBudget.id) {
+        const categoryLimits = budget.categoryLimits || [];
+        const existingIndex = categoryLimits.findIndex(cl => cl.category === category);
+        
+        if (existingIndex >= 0) {
+          categoryLimits[existingIndex].maxAmount = maxAmount;
+        } else {
+          categoryLimits.push({ category, maxAmount });
+        }
+        
+        return { ...budget, categoryLimits };
+      }
+      return budget;
+    });
+
+    setBudgets(updatedBudgets);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      budgets: updatedBudgets,
+      expenses,
+      activeBudgetId,
+    }));
+  };
+
+  const getCategorySpent = (category: string): number => {
+    return expenses
+      .filter(exp => exp.category === category && exp.budgetId === activeBudget?.id)
+      .reduce((sum, exp) => sum + exp.amount, 0);
+  };
+
+  const getCategoryLimit = (category: string): number | undefined => {
+    return activeBudget?.categoryLimits?.find(cl => cl.category === category)?.maxAmount;
+  };
+
+  const getExceededCategories = () => {
+    if (!activeBudget?.categoryLimits) return [];
+
+    return activeBudget.categoryLimits
+      .map(limit => ({
+        category: limit.category,
+        spent: getCategorySpent(limit.category),
+        limit: limit.maxAmount,
+      }))
+      .filter(item => item.spent > item.limit);
+  };
+
   return (
     <ExpenseContext.Provider
       value={{
@@ -261,6 +328,10 @@ export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children })
         deleteExpense,
         exportData,
         importData,
+        setCategoryLimit,
+        getCategorySpent,
+        getCategoryLimit,
+        getExceededCategories,
       }}
     >
       {children}
