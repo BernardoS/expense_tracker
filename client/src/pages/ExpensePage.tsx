@@ -6,16 +6,25 @@ import { useLocation } from 'wouter';
 import { toast } from 'sonner';
 
 export default function ExpensePage() {
-  const { addExpense, setBudgetGoal, activeBudget, budgets, setActiveBudget, deleteBudget, expenses, exportData, importData, setCategoryLimit, getCategoryLimit } = useExpense();
+  const { addExpense, setBudgetGoal, activeBudget, budgets, setActiveBudget, deleteBudget, expenses, exportData, importData, setCategoryLimit, getCategoryLimit, updateExpense, deleteExpense } = useExpense();
   const [, setLocation] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [tab, setTab] = useState<'add' | 'budget' | 'metas' | 'backup' | 'limites'>('add');
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [editingExpenseForm, setEditingExpenseForm] = useState({
+    amount: '',
+    description: '',
+    category: 'Alimentação',
+    date: new Date().toISOString().split('T')[0],
+    isEssential: true,
+  });
   const [expenseForm, setExpenseForm] = useState({
     amount: '',
     description: '',
     category: 'Alimentação',
     date: new Date().toISOString().split('T')[0],
+    isEssential: true,
   });
 
   const [categoryLimitForm, setCategoryLimitForm] = useState({
@@ -65,6 +74,7 @@ export default function ExpensePage() {
       description: expenseForm.description || 'Sem descrição',
       date: expenseForm.date,
       category: expenseForm.category,
+      isEssential: expenseForm.isEssential,
     });
 
     setExpenseForm({
@@ -72,9 +82,47 @@ export default function ExpensePage() {
       description: '',
       category: 'Alimentação',
       date: new Date().toISOString().split('T')[0],
+      isEssential: true,
     });
 
     toast.success('Gasto adicionado com sucesso!');
+  };
+  const handleEditExpense = (expense: any) => {
+    setEditingExpenseId(expense.id);
+    setEditingExpenseForm({
+      amount: expense.amount.toString(),
+      description: expense.description,
+      category: expense.category,
+      date: expense.date,
+      isEssential: expense.isEssential,
+    });
+  };
+
+  const handleSaveEditedExpense = () => {
+    if (!editingExpenseId) return;
+
+    if (!editingExpenseForm.amount || parseFloat(editingExpenseForm.amount) <= 0) {
+      toast.error("Digite um valor válido");
+      return;
+    }
+
+    updateExpense(editingExpenseId, {
+      amount: parseFloat(editingExpenseForm.amount),
+      description: editingExpenseForm.description || "Sem descrição",
+      date: editingExpenseForm.date,
+      category: editingExpenseForm.category,
+      isEssential: editingExpenseForm.isEssential,
+    });
+
+    setEditingExpenseId(null);
+    toast.success("Gasto atualizado com sucesso!");
+  };
+
+  const handleDeleteExpense = (id: string) => {
+    if (confirm("Tem certeza que deseja deletar este gasto?")) {
+      deleteExpense(id);
+      toast.success("Gasto deletado com sucesso!");
+    }
   };
 
   const calculateDurationDays = (startDate: string, endDate: string): number => {
@@ -331,6 +379,33 @@ export default function ExpensePage() {
                       />
                     </div>
                   </div>
+                  <div>
+                    <label className="block font-label text-muted-foreground mb-3">CLASSIFICAÇÃO</label>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setExpenseForm({ ...expenseForm, isEssential: true })}
+                        className={`flex-1 py-3 px-4 rounded-lg font-medium uppercase text-sm tracking-wider transition-all ${
+                          expenseForm.isEssential
+                            ? "bg-primary text-primary-foreground shadow-md"
+                            : "bg-muted text-foreground border border-border"
+                        }`}
+                      >
+                        Essencial
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExpenseForm({ ...expenseForm, isEssential: false })}
+                        className={`flex-1 py-3 px-4 rounded-lg font-medium uppercase text-sm tracking-wider transition-all ${
+                          !expenseForm.isEssential
+                            ? "bg-accent text-accent-foreground shadow-md"
+                            : "bg-muted text-foreground border border-border"
+                        }`}
+                      >
+                        Não Essencial
+                      </button>
+                    </div>
+                  </div>
 
                   <button
                     type="submit"
@@ -354,11 +429,25 @@ export default function ExpensePage() {
                             key={exp.id}
                             className="flex justify-between items-center p-4 bg-muted/30 rounded-lg border border-border hover:bg-muted/50 transition-colors"
                           >
-                            <div>
+                            <div className="flex-1">
                               <p className="font-body font-medium">{exp.description}</p>
                               <p className="font-label text-muted-foreground">{exp.category}</p>
                             </div>
-                            <p className="font-headline text-lg text-accent">R$ {exp.amount.toFixed(2)}</p>
+                            <div className="flex items-center gap-3">
+                              <p className="font-headline text-lg text-accent">R$ {exp.amount.toFixed(2)}</p>
+                              <button
+                                onClick={() => handleEditExpense(exp)}
+                                className="p-2 hover:bg-primary/10 rounded-lg transition-colors"
+                              >
+                                <Plus className="w-4 h-4 text-primary" strokeWidth={2.5} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteExpense(exp.id)}
+                                className="p-2 hover:bg-destructive/10 rounded-lg transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4 text-destructive" strokeWidth={2.5} />
+                              </button>
+                            </div>
                           </div>
                         ))}
                     </div>
@@ -675,6 +764,118 @@ export default function ExpensePage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+        {/* Edit Expense Modal */}
+        {editingExpenseId && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="m3-card p-8 w-full max-w-md">
+              <h2 className="font-headline text-2xl mb-6">Editar Gasto</h2>
+              <div className="space-y-6">
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">VALOR (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={editingExpenseForm.amount}
+                    onChange={(e) =>
+                      setEditingExpenseForm({ ...editingExpenseForm, amount: e.target.value })
+                    }
+                    className="m3-input font-headline text-2xl"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">DESCRIÇÃO</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Almoço no restaurante"
+                    value={editingExpenseForm.description}
+                    onChange={(e) =>
+                      setEditingExpenseForm({ ...editingExpenseForm, description: e.target.value })
+                    }
+                    className="m3-input font-body"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">CATEGORIA</label>
+                  <select
+                    value={editingExpenseForm.category}
+                    onChange={(e) =>
+                      setEditingExpenseForm({ ...editingExpenseForm, category: e.target.value })
+                    }
+                    className="m3-select font-body"
+                  >
+                    {categories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">DATA DO GASTO</label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-3.5 w-5 h-5 text-muted-foreground pointer-events-none" strokeWidth={2} />
+                    <input
+                      type="date"
+                      value={editingExpenseForm.date}
+                      onChange={(e) =>
+                        setEditingExpenseForm({ ...editingExpenseForm, date: e.target.value })
+                      }
+                      className="m3-input font-body pl-10"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">CLASSIFICAÇÃO</label>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditingExpenseForm({ ...editingExpenseForm, isEssential: true })}
+                      className={`flex-1 py-3 px-4 rounded-lg font-medium uppercase text-sm tracking-wider transition-all ${
+                        editingExpenseForm.isEssential
+                          ? "bg-primary text-primary-foreground shadow-md"
+                          : "bg-muted text-foreground border border-border"
+                      }`}
+                    >
+                      Essencial
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingExpenseForm({ ...editingExpenseForm, isEssential: false })}
+                      className={`flex-1 py-3 px-4 rounded-lg font-medium uppercase text-sm tracking-wider transition-all ${
+                        !editingExpenseForm.isEssential
+                          ? "bg-accent text-accent-foreground shadow-md"
+                          : "bg-muted text-foreground border border-border"
+                      }`}
+                    >
+                      Não Essencial
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleSaveEditedExpense}
+                    className="flex-1 px-6 py-4 bg-primary text-primary-foreground rounded-full font-medium uppercase text-sm tracking-wider shadow-md hover:shadow-lg transition-all"
+                  >
+                    Salvar
+                  </button>
+                  <button
+                    onClick={() => setEditingExpenseId(null)}
+                    className="flex-1 px-6 py-4 bg-muted text-foreground rounded-full font-medium uppercase text-sm tracking-wider shadow-md hover:shadow-lg transition-all"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

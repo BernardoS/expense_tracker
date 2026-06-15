@@ -1,7 +1,7 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { Download, TrendingUp, AlertCircle } from 'lucide-react';
+import { Download, TrendingUp, AlertCircle, Edit2, Trash2, Calendar } from 'lucide-react';
 import { useExpense } from '@/contexts/ExpenseContext';
 import { useLocation } from 'wouter';
 import { toast } from 'sonner';
@@ -11,10 +11,19 @@ import jsPDF from 'jspdf';
 const COLORS = ['#6750a4', '#f06292', '#00bcd4', '#4caf50', '#ff9800', '#9c27b0', '#2196f3', '#e91e63'];
 
 export default function AnalysisPage() {
-  const { activeBudget, expenses, getTotalBudget, getMonthlySpent, getExceededCategories } = useExpense();
+  const { activeBudget, expenses, getTotalBudget, getMonthlySpent, getExceededCategories, updateExpense, deleteExpense } = useExpense();
   const [, setLocation] = useLocation();
   const pieChartRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [editingExpenseForm, setEditingExpenseForm] = useState({
+    amount: '',
+    description: '',
+    category: 'Alimentação',
+    date: new Date().toISOString().split('T')[0],
+    isEssential: true,
+  });
+  const categories = ['Alimentação', 'Transporte', 'Saúde', 'Educação', 'Diversão', 'Lazer'];
 
   const activeBudgetExpenses = expenses.filter(e => e.budgetId === activeBudget?.id);
 
@@ -37,6 +46,20 @@ export default function AnalysisPage() {
       }))
       .sort((a, b) => b.value - a.value);
   }, [activeBudgetExpenses]);
+  // Calculate essential vs non-essential data for pie chart
+  const essentialityData = useMemo(() => {
+    const essentialSpent = activeBudgetExpenses
+      .filter(exp => exp.isEssential)
+      .reduce((sum, exp) => sum + exp.amount, 0);
+    const nonEssentialSpent = activeBudgetExpenses
+      .filter(exp => !exp.isEssential)
+      .reduce((sum, exp) => sum + exp.amount, 0);
+
+    return [
+      { name: "Essencial", value: parseFloat(essentialSpent.toFixed(2)) },
+      { name: "Não Essencial", value: parseFloat(nonEssentialSpent.toFixed(2)) },
+    ].filter(item => item.value > 0);
+  }, [activeBudgetExpenses]);
 
   // Calculate statistics
   const stats = useMemo(() => {
@@ -44,6 +67,13 @@ export default function AnalysisPage() {
     const totalBudget = getTotalBudget();
     const avgPerExpense = activeBudgetExpenses.length > 0 ? totalSpent / activeBudgetExpenses.length : 0;
     const highestCategory = categoryData[0];
+    
+    const essentialSpent = activeBudgetExpenses
+      .filter(exp => exp.isEssential)
+      .reduce((sum, exp) => sum + exp.amount, 0);
+    const nonEssentialSpent = activeBudgetExpenses
+      .filter(exp => !exp.isEssential)
+      .reduce((sum, exp) => sum + exp.amount, 0);
 
     return {
       totalSpent,
@@ -51,6 +81,8 @@ export default function AnalysisPage() {
       avgPerExpense,
       highestCategory,
       totalExpenses: activeBudgetExpenses.length,
+      essentialSpent,
+      nonEssentialSpent,
     };
   }, [activeBudgetExpenses, categoryData, getMonthlySpent, getTotalBudget]);
 
@@ -147,6 +179,43 @@ export default function AnalysisPage() {
     } catch (error) {
       toast.error('Erro ao exportar PDF');
       console.error(error);
+    }
+  };
+  const handleEditExpense = (expense: any) => {
+    setEditingExpenseId(expense.id);
+    setEditingExpenseForm({
+      amount: expense.amount.toString(),
+      description: expense.description,
+      category: expense.category,
+      date: expense.date,
+      isEssential: expense.isEssential,
+    });
+  };
+
+  const handleSaveEditedExpense = () => {
+    if (!editingExpenseId) return;
+
+    if (!editingExpenseForm.amount || parseFloat(editingExpenseForm.amount) <= 0) {
+      toast.error("Digite um valor válido");
+      return;
+    }
+
+    updateExpense(editingExpenseId, {
+      amount: parseFloat(editingExpenseForm.amount),
+      description: editingExpenseForm.description || "Sem descrição",
+      date: editingExpenseForm.date,
+      category: editingExpenseForm.category,
+      isEssential: editingExpenseForm.isEssential,
+    });
+
+    setEditingExpenseId(null);
+    toast.success("Gasto atualizado com sucesso!");
+  };
+
+  const handleDeleteExpense = (id: string) => {
+    if (confirm("Tem certeza que deseja deletar este gasto?")) {
+      deleteExpense(id);
+      toast.success("Gasto deletado com sucesso!");
     }
   };
 
@@ -274,6 +343,27 @@ export default function AnalysisPage() {
             </div>
           </div>
         )}
+        {/* Essential vs Non-Essential */}
+        <div className="grid grid-cols-2 gap-4 mb-8">
+          <div className="m3-card p-6 bg-primary/5 border border-primary/20">
+            <p className="font-label text-muted-foreground mb-2">ESSENCIAL</p>
+            <p className="font-headline text-3xl text-primary">
+              R$ {stats.essentialSpent.toFixed(2)}
+            </p>
+            <p className="font-label text-muted-foreground mt-2 text-sm">
+              {((stats.essentialSpent / stats.totalSpent) * 100).toFixed(0)}% do total
+            </p>
+          </div>
+          <div className="m3-card p-6 bg-accent/5 border border-accent/20">
+            <p className="font-label text-muted-foreground mb-2">NÃO ESSENCIAL</p>
+            <p className="font-headline text-3xl text-accent">
+              R$ {stats.nonEssentialSpent.toFixed(2)}
+            </p>
+            <p className="font-label text-muted-foreground mt-2 text-sm">
+              {((stats.nonEssentialSpent / stats.totalSpent) * 100).toFixed(0)}% do total
+            </p>
+          </div>
+        </div>
 
         {/* Pie Chart */}
         <div className="m3-card p-8 mb-8" ref={pieChartRef}>
@@ -303,6 +393,34 @@ export default function AnalysisPage() {
           </ResponsiveContainer>
         </div>
 
+        {/* Essential vs Non-Essential Pie Chart */}
+        {essentialityData.length > 0 && (
+          <div className="m3-card p-8 mb-8">
+            <h2 className="font-headline text-2xl mb-6">Gastos: Essencial vs Não Essencial</h2>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={essentialityData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, value, percent }) =>
+                    `${name}: ${(percent * 100).toFixed(0)}%`
+                  }
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  <Cell fill="#6750a4" />
+                  <Cell fill="#f06292" />
+                </Pie>
+                <Tooltip
+                  formatter={(value: any) => `R$ ${Number(value).toFixed(2)}`}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
         {/* Category Breakdown Table */}
         <div className="m3-card p-8 mb-8">
           <h2 className="font-headline text-2xl mb-6">Detalhamento por Categoria</h2>
@@ -354,12 +472,138 @@ export default function AnalysisPage() {
                       {expense.category} • {new Date(expense.date).toLocaleDateString('pt-BR')}
                     </p>
                   </div>
-                  <p className="font-headline text-lg text-accent">R$ {expense.amount.toFixed(2)}</p>
+                  <div className="flex items-center gap-3">
+                    <p className="font-headline text-lg text-accent">R$ {expense.amount.toFixed(2)}</p>
+                    <button
+                      onClick={() => handleEditExpense(expense)}
+                      className="p-2 hover:bg-primary/10 rounded-lg transition-colors"
+                    >
+                      <Edit2 className="w-4 h-4 text-primary" strokeWidth={2} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteExpense(expense.id)}
+                      className="p-2 hover:bg-destructive/10 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4 text-destructive" strokeWidth={2} />
+                    </button>
+                  </div>
                 </div>
               ))}
           </div>
         </div>
       </div>
+        {/* Edit Expense Modal */}
+        {editingExpenseId && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="m3-card p-8 w-full max-w-md">
+              <h2 className="font-headline text-2xl mb-6">Editar Gasto</h2>
+              <div className="space-y-6">
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">VALOR (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={editingExpenseForm.amount}
+                    onChange={(e) =>
+                      setEditingExpenseForm({ ...editingExpenseForm, amount: e.target.value })
+                    }
+                    className="m3-input font-headline text-2xl"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">DESCRIÇÃO</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Almoço no restaurante"
+                    value={editingExpenseForm.description}
+                    onChange={(e) =>
+                      setEditingExpenseForm({ ...editingExpenseForm, description: e.target.value })
+                    }
+                    className="m3-input font-body"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">CATEGORIA</label>
+                  <select
+                    value={editingExpenseForm.category}
+                    onChange={(e) =>
+                      setEditingExpenseForm({ ...editingExpenseForm, category: e.target.value })
+                    }
+                    className="m3-select font-body"
+                  >
+                    {categories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">DATA DO GASTO</label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-3.5 w-5 h-5 text-muted-foreground pointer-events-none" strokeWidth={2} />
+                    <input
+                      type="date"
+                      value={editingExpenseForm.date}
+                      onChange={(e) =>
+                        setEditingExpenseForm({ ...editingExpenseForm, date: e.target.value })
+                      }
+                      className="m3-input font-body pl-10"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-label text-muted-foreground mb-3">CLASSIFICAÇÃO</label>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditingExpenseForm({ ...editingExpenseForm, isEssential: true })}
+                      className={`flex-1 py-3 px-4 rounded-lg font-medium uppercase text-sm tracking-wider transition-all ${
+                        editingExpenseForm.isEssential
+                          ? "bg-primary text-primary-foreground shadow-md"
+                          : "bg-muted text-foreground border border-border"
+                      }`}
+                    >
+                      Essencial
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingExpenseForm({ ...editingExpenseForm, isEssential: false })}
+                      className={`flex-1 py-3 px-4 rounded-lg font-medium uppercase text-sm tracking-wider transition-all ${
+                        !editingExpenseForm.isEssential
+                          ? "bg-accent text-accent-foreground shadow-md"
+                          : "bg-muted text-foreground border border-border"
+                      }`}
+                    >
+                      Não Essencial
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleSaveEditedExpense}
+                    className="flex-1 px-6 py-4 bg-primary text-primary-foreground rounded-full font-medium uppercase text-sm tracking-wider shadow-md hover:shadow-lg transition-all"
+                  >
+                    Salvar
+                  </button>
+                  <button
+                    onClick={() => setEditingExpenseId(null)}
+                    className="flex-1 px-6 py-4 bg-muted text-foreground rounded-full font-medium uppercase text-sm tracking-wider shadow-md hover:shadow-lg transition-all"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
     </div>
   );
 }

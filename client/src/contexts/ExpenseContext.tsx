@@ -7,6 +7,7 @@ export interface Expense {
   date: string;
   category: string;
   budgetId: string;
+  isEssential: boolean;
 }
 
 export interface CategoryLimit {
@@ -41,6 +42,7 @@ interface ExpenseContextType {
   getTotalBudget: () => number;
   getAdjustedDailyLimit: (date: string) => number;
   deleteExpense: (id: string) => void;
+  updateExpense: (id: string, updatedExpense: Omit<Expense, 'id' | 'budgetId'>) => void;
   exportData: () => void;
   importData: (file: File) => Promise<void>;
   setCategoryLimit: (category: string, maxAmount: number) => void;
@@ -107,6 +109,14 @@ export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const deleteExpense = (id: string) => {
     setExpenses(expenses.filter(exp => exp.id !== id));
+  };
+
+  const updateExpense = (id: string, updatedExpense: Omit<Expense, 'id' | 'budgetId'>) => {
+    setExpenses(expenses.map(exp => 
+      exp.id === id 
+        ? { ...exp, ...updatedExpense }
+        : exp
+    ));
   };
 
   const setBudgetGoal = (goal: Omit<BudgetGoal, 'id'>) => {
@@ -326,6 +336,7 @@ export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children })
         getTotalBudget,
         getAdjustedDailyLimit,
         deleteExpense,
+        updateExpense,
         exportData,
         importData,
         setCategoryLimit,
