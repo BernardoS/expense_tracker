@@ -23,7 +23,7 @@ export default function AnalysisPage() {
     date: new Date().toISOString().split('T')[0],
     isEssential: true,
   });
-  const categories = ['Alimentação', 'Transporte', 'Saúde', 'Educação', 'Diversão', 'Lazer'];
+    const categories = ['Alimentação', 'Transporte', 'Entretenimento', 'Saúde', 'Compras', 'Lazer', 'Outros'];
 
   const activeBudgetExpenses = expenses.filter(e => e.budgetId === activeBudget?.id);
 
