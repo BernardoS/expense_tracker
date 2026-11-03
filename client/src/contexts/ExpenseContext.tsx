@@ -1,39 +1,27 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
+import { toast } from 'sonner';
+import { z } from 'zod';
+import type { Expense, BudgetGoal, CategoryLimit, StorageData } from '@/storage/types';
+import { StorageFactory } from '@/storage/StorageFactory';
+import { BudgetRepository } from '@/storage/BudgetRepository';
+import { ExpenseRepository } from '@/storage/ExpenseRepository';
+import { createDebouncedAdapter } from '@/storage/debounce';
 
-export interface Expense {
-  id: string;
-  amount: number;
-  description: string;
-  date: string;
-  category: string;
-  budgetId: string;
-  isEssential: boolean;
-}
-
-export interface CategoryLimit {
-  category: string;
-  maxAmount: number;
-}
-
-export interface BudgetGoal {
-  id: string;
-  name: string;
-  totalAmount: number;
-  startDate: string;
-  endDate: string;
-  initialSpent?: number;
-  categoryLimits?: CategoryLimit[];
-}
+// Re-export the shared storage types so that existing imports from
+// ExpenseContext (e.g. `import { Expense } from '@/contexts/ExpenseContext'`)
+// continue to resolve. The canonical definitions now live in
+// `@/storage/types`, which the storage layer also depends on.
+export type { Expense, BudgetGoal, CategoryLimit, StorageData } from '@/storage/types';
 
 interface ExpenseContextType {
   budgets: BudgetGoal[];
   activeBudgetId: string | null;
   expenses: Expense[];
   activeBudget: BudgetGoal | null;
-  addExpense: (expense: Omit<Expense, 'id' | 'budgetId'>) => void;
-  setBudgetGoal: (goal: Omit<BudgetGoal, 'id'>) => void;
-  deleteBudget: (budgetId: string) => void;
-  setActiveBudget: (budgetId: string) => void;
+  addExpense: (expense: Omit<Expense, 'id' | 'budgetId'>) => Promise<void>;
+  setBudgetGoal: (goal: Omit<BudgetGoal, 'id'>) => Promise<void>;
+  deleteBudget: (budgetId: string) => Promise<void>;
+  setActiveBudget: (budgetId: string) => Promise<void>;
   getDailySpent: (date: string) => number;
   getMonthlySpent: () => number;
   getDailyBudget: (date: string) => number;
@@ -41,11 +29,11 @@ interface ExpenseContextType {
   getMonthlyRemaining: () => number;
   getTotalBudget: () => number;
   getAdjustedDailyLimit: (date: string) => number;
-  deleteExpense: (id: string) => void;
-  updateExpense: (id: string, updatedExpense: Omit<Expense, 'id' | 'budgetId'>) => void;
+  deleteExpense: (id: string) => Promise<void>;
+  updateExpense: (id: string, updatedExpense: Omit<Expense, 'id' | 'budgetId'>) => Promise<void>;
   exportData: () => void;
   importData: (file: File) => Promise<void>;
-  setCategoryLimit: (category: string, maxAmount: number) => void;
+  setCategoryLimit: (category: string, maxAmount: number) => Promise<void>;
   getCategorySpent: (category: string) => number;
   getCategoryLimit: (category: string) => number | undefined;
   getExceededCategories: () => { category: string; spent: number; limit: number }[];
@@ -55,11 +43,44 @@ const ExpenseContext = createContext<ExpenseContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'expense_tracker_data_v2';
 
-interface StorageData {
-  budgets: BudgetGoal[];
-  expenses: Expense[];
-  activeBudgetId: string | null;
-}
+// ---------------------------------------------------------------------------
+// Zod schemas for import data validation (Requirement 9.2, 9.3, 17.2)
+//
+// These schemas mirror the domain types in `@/storage/types`. They are
+// defined at module level so they are created once and reused across
+// import calls, rather than being rebuilt on every import.
+// ---------------------------------------------------------------------------
+
+const categoryLimitSchema = z.object({
+  category: z.string().min(1),
+  maxAmount: z.number().positive(),
+});
+
+const budgetSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  totalAmount: z.number().positive(),
+  startDate: z.string().min(1),
+  endDate: z.string().min(1),
+  initialSpent: z.number().nonnegative().optional(),
+  categoryLimits: z.array(categoryLimitSchema).optional(),
+});
+
+const expenseSchema = z.object({
+  id: z.string().min(1),
+  amount: z.number().positive(),
+  description: z.string().min(1),
+  date: z.string().min(1),
+  category: z.string().min(1),
+  budgetId: z.string().min(1),
+  isEssential: z.boolean(),
+});
+
+const storageDataSchema = z.object({
+  budgets: z.array(budgetSchema),
+  expenses: z.array(expenseSchema),
+  activeBudgetId: z.string().nullable(),
+});
 
 export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [budgets, setBudgets] = useState<BudgetGoal[]>([]);
@@ -67,78 +88,153 @@ export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [activeBudgetId, setActiveBudgetId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load from localStorage on mount
+  // Create adapter and repositories once (Requirement 6.2).
+  // When the backend is Firebase, save/update operations are debounced
+  // to reduce Firestore write costs (Requirement 16.1). LocalStorageAdapter
+  // operations pass through without debounce since they are synchronous.
+  const adapter = useMemo(() => {
+    const rawAdapter = StorageFactory.create();
+    const isFirebase = import.meta.env.VITE_STORAGE_BACKEND === 'firebase';
+    return createDebouncedAdapter(rawAdapter, isFirebase);
+  }, []);
+  const budgetRepo = useMemo(() => new BudgetRepository(adapter), [adapter]);
+  const expenseRepo = useMemo(() => new ExpenseRepository(adapter), [adapter]);
+
+  // Load from storage adapter on mount (Requirement 6.3, 6.8)
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
+    (async () => {
       try {
-        const data: StorageData = JSON.parse(saved);
+        const data = await adapter.loadAll();
         setBudgets(data.budgets || []);
         setExpenses(data.expenses || []);
-        setActiveBudgetId(data.activeBudgetId || (data.budgets?.[0]?.id || null));
+        const activeId = data.activeBudgetId || (data.budgets?.[0]?.id || null);
+        setActiveBudgetId(activeId);
       } catch (e) {
-        console.error('Failed to parse data from localStorage', e);
+        console.error('Failed to load data from storage', e);
       }
-    }
-    setIsLoaded(true);
-  }, []);
-
-  // Save to localStorage whenever data changes
-  useEffect(() => {
-    if (isLoaded) {
-      const data: StorageData = {
-        budgets,
-        expenses,
-        activeBudgetId,
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    }
-  }, [budgets, expenses, activeBudgetId, isLoaded]);
+      setIsLoaded(true);
+    })();
+  }, [adapter]);
 
   const activeBudget = budgets.find((b) => b.id === activeBudgetId) || null;
 
-  const addExpense = (expense: Omit<Expense, 'id' | 'budgetId'>) => {
+  const addExpense = async (expense: Omit<Expense, 'id' | 'budgetId'>) => {
     if (!activeBudgetId) return;
     const newExpense: Expense = {
       ...expense,
       id: Date.now().toString(),
       budgetId: activeBudgetId,
     };
+    const prevExpenses = expenses;
     setExpenses([...expenses, newExpense]);
+    try {
+      await expenseRepo.save(newExpense);
+    } catch (e) {
+      setExpenses(prevExpenses);
+      toast.error('Erro ao salvar despesa');
+      console.error('Failed to save expense', e);
+    }
   };
 
-  const deleteExpense = (id: string) => {
+  const deleteExpense = async (id: string) => {
+    const prevExpenses = expenses;
     setExpenses(expenses.filter(exp => exp.id !== id));
+    try {
+      await expenseRepo.delete(id);
+    } catch (e) {
+      setExpenses(prevExpenses);
+      toast.error('Erro ao deletar despesa');
+      console.error('Failed to delete expense', e);
+    }
   };
 
-  const updateExpense = (id: string, updatedExpense: Omit<Expense, 'id' | 'budgetId'>) => {
-    setExpenses(expenses.map(exp => 
-      exp.id === id 
+  const updateExpense = async (id: string, updatedExpense: Omit<Expense, 'id' | 'budgetId'>) => {
+    const prevExpenses = expenses;
+    setExpenses(expenses.map(exp =>
+      exp.id === id
         ? { ...exp, ...updatedExpense }
         : exp
     ));
+    try {
+      const existing = expenses.find(e => e.id === id);
+      if (existing) {
+        await expenseRepo.update({ ...existing, ...updatedExpense });
+      }
+    } catch (e) {
+      setExpenses(prevExpenses);
+      toast.error('Erro ao atualizar despesa');
+      console.error('Failed to update expense', e);
+    }
   };
 
-  const setBudgetGoal = (goal: Omit<BudgetGoal, 'id'>) => {
+  const setBudgetGoal = async (goal: Omit<BudgetGoal, 'id'>) => {
     const newBudget: BudgetGoal = {
       ...goal,
       id: Date.now().toString(),
     };
+    const prevBudgets = budgets;
+    const prevActiveBudgetId = activeBudgetId;
     setBudgets([...budgets, newBudget]);
     setActiveBudgetId(newBudget.id);
-  };
-
-  const deleteBudget = (budgetId: string) => {
-    setBudgets(budgets.filter((b) => b.id !== budgetId));
-    setExpenses(expenses.filter((e) => e.budgetId !== budgetId));
-    if (activeBudgetId === budgetId) {
-      const remaining = budgets.filter((b) => b.id !== budgetId);
-      setActiveBudgetId(remaining.length > 0 ? remaining[0].id : null);
+    try {
+      await budgetRepo.save(newBudget);
+      await adapter.setActiveBudgetId(newBudget.id);
+    } catch (e) {
+      setBudgets(prevBudgets);
+      setActiveBudgetId(prevActiveBudgetId);
+      toast.error('Erro ao salvar orçamento');
+      console.error('Failed to save budget', e);
     }
   };
 
-  const setActiveBudget = (budgetId: string) => {
-    setActiveBudgetId(budgetId);
+  const deleteBudget = async (budgetId: string) => {
+    const prevBudgets = budgets;
+    const prevExpenses = expenses;
+    const prevActiveBudgetId = activeBudgetId;
+
+    // Optimistic update: filter out the budget and cascade-delete its expenses
+    const updatedBudgets = budgets.filter((b) => b.id !== budgetId);
+    const updatedExpenses = expenses.filter((e) => e.budgetId !== budgetId);
+    setBudgets(updatedBudgets);
+    setExpenses(updatedExpenses);
+
+    // Handle active budget selection (Requirement 10.3, 10.5)
+    let newActiveBudgetId = activeBudgetId;
+    if (activeBudgetId === budgetId) {
+      newActiveBudgetId = updatedBudgets.length > 0
+        ? updatedBudgets[updatedBudgets.length - 1].id  // most recently created
+        : null;
+      setActiveBudgetId(newActiveBudgetId);
+    }
+
+    try {
+      await budgetRepo.delete(budgetId);
+      await expenseRepo.deleteByBudgetId(budgetId);
+      // Persist new active budget ID only when it changed and is not null
+      // (adapter.setActiveBudgetId accepts a string, not null)
+      if (newActiveBudgetId !== null && newActiveBudgetId !== prevActiveBudgetId) {
+        await adapter.setActiveBudgetId(newActiveBudgetId);
+      }
+    } catch (e) {
+      // Rollback on failure
+      setBudgets(prevBudgets);
+      setExpenses(prevExpenses);
+      setActiveBudgetId(prevActiveBudgetId);
+      toast.error('Erro ao deletar orçamento');
+      console.error('Failed to delete budget', e);
+    }
+  };
+
+  const setActiveBudget = async (budgetId: string) => {
+    const prevActiveBudgetId = activeBudgetId;
+    setActiveBudgetId(budgetId); // optimistic update
+    try {
+      await adapter.setActiveBudgetId(budgetId);
+    } catch (e) {
+      setActiveBudgetId(prevActiveBudgetId); // rollback
+      toast.error('Erro ao alterar orçamento ativo');
+      console.error('Failed to set active budget', e);
+    }
   };
 
   const getDailySpent = (date: string): number => {
@@ -244,21 +340,42 @@ export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children })
   const importData = async (file: File): Promise<void> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         try {
           const content = event.target?.result as string;
-          const data: StorageData = JSON.parse(content);
+          const parsed = JSON.parse(content);
 
-          if (!data.budgets || !Array.isArray(data.budgets) || !data.expenses || !Array.isArray(data.expenses)) {
+          // Validate the imported structure with zod (Requirements 9.3, 17.2, 17.4).
+          // safeParse returns a result object instead of throwing, so we can
+          // produce a consistent "Formato de arquivo inválido" error for any
+          // validation failure (Requirement 9.6).
+          const result = storageDataSchema.safeParse(parsed);
+          if (!result.success) {
             throw new Error('Formato de arquivo inválido');
           }
 
+          const data = result.data as StorageData;
+
+          // Update React state with the validated data
           setBudgets(data.budgets);
           setExpenses(data.expenses);
-          setActiveBudgetId(data.activeBudgetId || (data.budgets?.[0]?.id || null));
+          setActiveBudgetId(data.activeBudgetId || (data.budgets[0]?.id || null));
+
+          // Persist the imported data via the storage adapter (Requirement 9.5).
+          // Persistence errors are logged and surfaced via toast but do not
+          // reject the import promise — the React state has already been
+          // updated optimistically, matching the pattern used elsewhere in
+          // this context.
+          try {
+            await adapter.saveAll(data);
+          } catch (persistError) {
+            console.error('Failed to persist imported data', persistError);
+            toast.error('Erro ao salvar dados importados');
+          }
+
           resolve();
         } catch (error) {
-          reject(error);
+          reject(error instanceof Error ? error : new Error('Formato de arquivo inválido'));
         }
       };
       reader.onerror = () => {
@@ -268,31 +385,38 @@ export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
   };
 
-  const setCategoryLimit = (category: string, maxAmount: number) => {
+  const setCategoryLimit = async (category: string, maxAmount: number) => {
     if (!activeBudget) return;
 
+    const prevBudgets = budgets;
     const updatedBudgets = budgets.map(budget => {
       if (budget.id === activeBudget.id) {
         const categoryLimits = budget.categoryLimits || [];
         const existingIndex = categoryLimits.findIndex(cl => cl.category === category);
-        
+
         if (existingIndex >= 0) {
           categoryLimits[existingIndex].maxAmount = maxAmount;
         } else {
           categoryLimits.push({ category, maxAmount });
         }
-        
+
         return { ...budget, categoryLimits };
       }
       return budget;
     });
 
-    setBudgets(updatedBudgets);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      budgets: updatedBudgets,
-      expenses,
-      activeBudgetId,
-    }));
+    setBudgets(updatedBudgets); // optimistic update
+
+    try {
+      const updatedBudget = updatedBudgets.find(b => b.id === activeBudget.id);
+      if (updatedBudget) {
+        await budgetRepo.save(updatedBudget);
+      }
+    } catch (e) {
+      setBudgets(prevBudgets); // rollback
+      toast.error('Erro ao salvar limite de categoria');
+      console.error('Failed to set category limit', e);
+    }
   };
 
   const getCategorySpent = (category: string): number => {
