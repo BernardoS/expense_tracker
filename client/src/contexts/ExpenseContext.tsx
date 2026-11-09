@@ -157,7 +157,7 @@ export const ExpenseProvider: React.FC<{ children: ReactNode }> = ({ children })
     const expensesSum = expenses
       .filter(exp => {
         const expDate = new Date(exp.date);
-        return exp.budgetId === activeBudgetId && expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear;
+        return exp.budgetId === activeBudgetId;
       })
       .reduce((sum, exp) => sum + exp.amount, 0);
 

@@ -4,6 +4,7 @@ import { useExpense } from '@/contexts/ExpenseContext';
 import { Button } from '@/components/ui/button';
 import { useLocation } from 'wouter';
 import { toast } from 'sonner';
+import { toLocalDateStr, parseLocalDate } from '@/lib/date';
 
 export default function ExpensePage() {
   const { addExpense, setBudgetGoal, activeBudget, budgets, setActiveBudget, deleteBudget, expenses, exportData, importData, setCategoryLimit, getCategoryLimit, updateExpense, deleteExpense } = useExpense();
@@ -16,14 +17,14 @@ export default function ExpensePage() {
     amount: '',
     description: '',
     category: 'Alimentação',
-    date: new Date().toISOString().split('T')[0],
+    date: toLocalDateStr(),
     isEssential: true,
   });
   const [expenseForm, setExpenseForm] = useState({
     amount: '',
     description: '',
     category: 'Alimentação',
-    date: new Date().toISOString().split('T')[0],
+    date: toLocalDateStr(),
     isEssential: true,
   });
 
@@ -81,7 +82,7 @@ export default function ExpensePage() {
       amount: '',
       description: '',
       category: 'Alimentação',
-      date: new Date().toISOString().split('T')[0],
+      date: toLocalDateStr(),
       isEssential: true,
     });
 
@@ -127,10 +128,10 @@ export default function ExpensePage() {
 
   const calculateDurationDays = (startDate: string, endDate: string): number => {
     if (!startDate || !endDate) return 0;
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = parseLocalDate(startDate);
+    const end = parseLocalDate(endDate);
     const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
     return diffDays;
   };
 
@@ -157,8 +158,8 @@ export default function ExpensePage() {
       return;
     }
 
-    const startDate = new Date(budgetForm.startDate);
-    const endDate = new Date(budgetForm.endDate);
+    const startDate = parseLocalDate(budgetForm.startDate);
+    const endDate = parseLocalDate(budgetForm.endDate);
 
     if (endDate < startDate) {
       toast.error('A data final deve ser após a data inicial');
@@ -488,8 +489,8 @@ export default function ExpensePage() {
                       <div>
                         <h3 className="font-headline text-lg text-primary">{budget.name}</h3>
                         <p className="font-label text-muted-foreground text-sm">
-                          {new Date(budget.startDate).toLocaleDateString('pt-BR')} até{' '}
-                          {new Date(budget.endDate).toLocaleDateString('pt-BR')}
+                          {parseLocalDate(budget.startDate).toLocaleDateString('pt-BR')} até{' '}
+                          {parseLocalDate(budget.endDate).toLocaleDateString('pt-BR')}
                         </p>
                       </div>
                       <button

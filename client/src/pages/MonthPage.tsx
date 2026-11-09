@@ -4,6 +4,8 @@ import { TrendingUp, Plus, Sparkles, AlertCircle } from 'lucide-react';
 import { useExpense } from '@/contexts/ExpenseContext';
 import { Button } from '@/components/ui/button';
 import { useLocation } from 'wouter';
+import { toLocalDateStr, parseLocalDate } from '@/lib/date';
+
 
 export default function MonthPage() {
   const { getMonthlySpent, getTotalBudget, getMonthlyRemaining, activeBudget, expenses } = useExpense();
@@ -15,17 +17,18 @@ export default function MonthPage() {
 
   // Generate chart data for each day of the meta period
   const chartData = useMemo(() => {
+    debugger;
     if (!activeBudget) return [];
 
-    const startDate = new Date(activeBudget.startDate);
-    const endDate = new Date(activeBudget.endDate);
+    const startDate = parseLocalDate(activeBudget.startDate);
+    const endDate = parseLocalDate(activeBudget.endDate);
     
     const data = [];
     const currentDate = new Date(startDate);
     let dayNumber = 1;
 
     while (currentDate <= endDate) {
-      const dateStr = currentDate.toISOString().split('T')[0];
+      const dateStr = toLocalDateStr(currentDate);
       const daySpent = expenses
         .filter(exp => exp.date === dateStr && exp.budgetId === activeBudget.id)
         .reduce((sum, exp) => sum + exp.amount, 0);
@@ -64,8 +67,7 @@ export default function MonthPage() {
     );
   }
 
-  const metaPeriod = `${new Date(activeBudget.startDate).toLocaleDateString('pt-BR')} até ${new Date(activeBudget.endDate).toLocaleDateString('pt-BR')}`;
-
+  const metaPeriod = `${parseLocalDate(activeBudget.startDate).toLocaleDateString('pt-BR')} até ${parseLocalDate(activeBudget.endDate).toLocaleDateString('pt-BR')}`;
   return (
     <div className="min-h-screen bg-background pb-24">
       <div className="container pt-8">
