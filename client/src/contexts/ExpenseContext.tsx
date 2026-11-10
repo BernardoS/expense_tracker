@@ -41,7 +41,6 @@ interface ExpenseContextType {
 
 const ExpenseContext = createContext<ExpenseContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'expense_tracker_data_v2';
 
 // ---------------------------------------------------------------------------
 // Zod schemas for import data validation (Requirement 9.2, 9.3, 17.2)
